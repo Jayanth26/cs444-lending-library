@@ -44,11 +44,13 @@ export function makeLendingLibrary() {
 
 export class LendingLibrary {
 
-  //TODO: declare private TS properties for instance
+  private books: Record<ISBN, XBook>;
+private wordIndex: Record<string, Set<ISBN>>;
   
   constructor() {
-    //TODO: initialize private TS properties for instance
-  }
+  this.books = {};
+  this.wordIndex = {};
+}
 
   /** Add one-or-more copies of book represented by req to this library.
    *
@@ -60,9 +62,49 @@ export class LendingLibrary {
    *             inconsistent with the data already present.
    */
   addBook(req: Record<string, any>): Errors.Result<XBook> {
-    //TODO
-    return Errors.errResult('TODO');  //placeholder
+  const result = validateAddBookReq(req);
+  if (!result.isOk) return result;
+
+  const book = result.val;
+  const oldBook = this.books[book.isbn];
+
+  if (oldBook) {
+    const fields = ['title', 'pages', 'year', 'publisher'] as const;
+
+    for (const field of fields) {
+      if (oldBook[field] !== book[field]) {
+        return Errors.errResult(
+          `inconsistent ${field} data for book ${book.isbn}`,
+          'BAD_REQ',
+          field
+        );
+      }
+    }
+
+  if (oldBook.authors.length !== book.authors.length ||
+      oldBook.authors.some((a, i) => a !== book.authors[i])) {
+      return Errors.errResult(
+        `inconsistent authors data for book ${book.isbn}`,
+        'BAD_REQ',
+        'authors'
+      );
+    }
+
+    oldBook.nCopies += book.nCopies;
+    return Errors.okResult(oldBook);
   }
+
+  this.books[book.isbn] = book;
+
+  for (const word of bookWords(book)) {
+    if (!this.wordIndex[word]) {
+      this.wordIndex[word] = new Set<ISBN>();
+    }
+    this.wordIndex[word].add(book.isbn);
+  }
+
+  return Errors.okResult(book);
+}
 
   /** Return all books matching (case-insensitive) all "words" in
    *  req.search, where a "word" is a max sequence of /\w/ of length > 1.
@@ -74,9 +116,32 @@ export class LendingLibrary {
    *    BAD_REQ: no words in search
    */
   findBooks(req: Record<string, any>) : Errors.Result<XBook[]> {
-    //TODO
-    return Errors.errResult('TODO');  //placeholder
+  const result = validateFindBooksReq(req);
+  if (!result.isOk) return result;
+
+  const words = extractWords(result.val.search);
+
+  if (words.length === 0) {
+    return Errors.errResult(
+      'search contains no words',
+      'BAD_REQ',
+      'search'
+    );
   }
+
+  let isbns = new Set(this.wordIndex[words[0]] ?? []);
+
+  for (const word of words.slice(1)) {
+    const matches = this.wordIndex[word] ?? new Set<ISBN>();
+    isbns = new Set([...isbns].filter(isbn => matches.has(isbn)));
+  }
+
+  const books = [...isbns]
+    .map(isbn => this.books[isbn])
+    .sort((a, b) => a.title.localeCompare(b.title));
+
+  return Errors.okResult(books);
+}
 
 
   /** Set up patron req.patronId to check out book req.isbn. 
@@ -108,10 +173,107 @@ export class LendingLibrary {
 
 /********************** Domain Utility Functions ***********************/
 
+function validateAddBookReq(req: Record<string, any>): Errors.Result<XBook> {
+  const errors: Errors.Err[] = [];
 
-//TODO: add domain-specific utility functions or classes.
+  const required = ['isbn', 'title', 'authors', 'pages', 'year', 'publisher'];
+
+  for (const field of required) {
+    if (req[field] === undefined) {
+      errors.push(new Errors.Err(
+        `property ${field} is required`,
+        { code: 'MISSING', widget: field }
+      ));
+    }
+  }
+
+  if (errors.length > 0) return new Errors.ErrResult(errors);
+
+  for (const field of ['isbn', 'title', 'publisher']) {
+    if (typeof req[field] !== 'string') {
+      errors.push(new Errors.Err(
+        `property ${field} must be a string`,
+        { code: 'BAD_TYPE', widget: field }
+      ));
+    }
+  }
+
+  if (!Array.isArray(req.authors) ||
+      req.authors.length === 0 ||
+      !req.authors.every((a: any) => typeof a === 'string')) {
+    errors.push(new Errors.Err(
+      'authors must have type string[]',
+      { code: 'BAD_TYPE', widget: 'authors' }
+    ));
+  }
+
+  for (const field of ['pages', 'year', 'nCopies']) {
+    if (field === 'nCopies' && req[field] === undefined) continue;
+
+    if (typeof req[field] !== 'number') {
+      errors.push(new Errors.Err(
+        `property ${field} must be numeric`,
+        { code: 'BAD_TYPE', widget: field }
+      ));
+    }
+    else if (!Number.isInteger(req[field]) || req[field] <= 0) {
+      errors.push(new Errors.Err(
+        `property ${field} must be a positive integer`,
+        { code: 'BAD_REQ', widget: field }
+      ));
+    }
+  }
+
+  if (errors.length > 0) return new Errors.ErrResult(errors);
+
+  const book: XBook = {
+    isbn: req.isbn,
+    title: req.title,
+    authors: [...req.authors],
+    pages: req.pages,
+    year: req.year,
+    publisher: req.publisher,
+    nCopies: req.nCopies ?? 1
+  };
+
+  return Errors.okResult(book);
+}
+
+
+function validateFindBooksReq(
+  req: Record<string, any>
+): Errors.Result<FindBooksReq> {
+
+  if (req.search === undefined) {
+    return Errors.errResult(
+      'property search is required',
+      'MISSING',
+      'search'
+    );
+  }
+
+  if (typeof req.search !== 'string') {
+    return Errors.errResult(
+      'property search must be a string',
+      'BAD_TYPE',
+      'search'
+    );
+  }
+
+  return Errors.okResult(req as FindBooksReq);
+}
+
+
+function bookWords(book: XBook): string[] {
+  return extractWords(
+    book.title + ' ' + book.authors.join(' ')
+  );
+}
+
 
 /********************* General Utility Functions ***********************/
 
-//TODO: add general utility functions or classes.
-
+function extractWords(s: string): string[] {
+  const words = s.toLowerCase().match(/\w+/g) ?? [];
+  return [...new Set(words.filter(w => w.length > 1))];
+}
