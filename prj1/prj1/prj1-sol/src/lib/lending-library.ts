@@ -235,60 +235,65 @@ export class LendingLibrary {
    *    BAD_TYPE: patronId or isbn field is not a string.
    *    BAD_REQ error on business rule violation.
    */
-  returnBook(req: Record<string, any>) : Errors.Result<void> {
-    const required = ['patronId', 'isbn'];
-    //checks to see if any fields are missing
-    for (const field of required) {
-        if(req[field] === undefined) {
-            return Errors.errResult(
-                'property ${field} is required',
-                'MISSING',
-                field
-            );
-        }
+ returnBook(req: Record<string, any>): Errors.Result<void> {
+  const required = ['patronId', 'isbn'];
+
+  // check for missing fields
+  for (const field of required) {
+    if (req[field] === undefined) {
+      return Errors.errResult(
+        `property ${field} is required`,
+        'MISSING',
+        field
+      );
     }
-    //checks to make sure fields of the right type
-    for( const field of required) {
-        if(typeof req[field] !== 'string') {
-            return Errors.errResult(
-                'property ${field} must be a string',
-                'BAD_TYPE',
-                field
-            )
-        }
-    }
-
-    const patronId = req.patronId;
-    const isbn = req.isbn;
-    //checks if the book exists
-    const book = this.books[isbn];
-
-    if (!book){
-        return Errors.errResult(
-            'book ${isbn} does not exist',
-            'BAD_REQ',
-            'isbn'
-        );
-    }
-
-    //checks to see if Patron even has the book
-    const patronBooks = this.patronBooks[patronId];
-
-    if(!patronBooks || !patronBooks.has(isbn)) {
-        return Errors.errResult(
-            'patron ${patronId} does not have book ${isbn}',
-            'BAD_REQ',
-            'isbn'
-        );
-    }
-
-    //if passes returns book, removes it from patron and lowers checkedout value
-    patronBooks.delete(isbn);
-    this.checkedOut[isbn]--;
-
-    return Errors.errResult('TODO');  //placeholder
   }
-  
+
+  // check field types
+  for (const field of required) {
+    if (typeof req[field] !== 'string') {
+      return Errors.errResult(
+        `property ${field} must be a string`,
+        'BAD_TYPE',
+        field
+      );
+    }
+  }
+
+  const patronId = req.patronId;
+  const isbn = req.isbn;
+
+  // make sure book exists
+  const book = this.books[isbn];
+
+  if (!book) {
+    return Errors.errResult(
+      `book ${isbn} does not exist`,
+      'BAD_REQ',
+      'isbn'
+    );
+  }
+
+  // get books checked out by this patron
+  const patronBooks = this.patronBooks[patronId];
+
+  // patron must actually have this book
+  if (!patronBooks || !patronBooks.has(isbn)) {
+    return Errors.errResult(
+      `patron ${patronId} does not have book ${isbn}`,
+      'BAD_REQ',
+      'isbn'
+    );
+  }
+
+  // return the book
+  patronBooks.delete(isbn);
+
+  this.checkedOut[isbn] =
+    (this.checkedOut[isbn] ?? 1) - 1;
+
+  return Errors.okResult(undefined);
+}
 }
 
 
