@@ -12,6 +12,8 @@ import { Errors } from 'cs544-js-utils';
 
 /******************** Types for Validated Requests *********************/
 
+
+
 /** used as an ID for a book */
 type ISBN = string; 
 
@@ -36,6 +38,8 @@ type FindBooksReq = { search: string; };
 type ReturnBookReq = { patronId: PatronId; isbn: ISBN; };
 type CheckoutBookReq = { patronId: PatronId; isbn: ISBN; };
 
+
+
 /************************ Main Implementation **************************/
 
 export function makeLendingLibrary() {
@@ -45,11 +49,15 @@ export function makeLendingLibrary() {
 export class LendingLibrary {
 
   private books: Record<ISBN, XBook>;
-private wordIndex: Record<string, Set<ISBN>>;
-  
+  private wordIndex: Record<string, Set<ISBN>>;
+  private patronBooks: Record<PatronId, Set<ISBN>>;
+  private checkedOut: Record<ISBN, number>;
+
   constructor() {
   this.books = {};
   this.wordIndex = {};
+  this.patronBooks = {};
+  this.checkedOut = {};
 }
 
   /** Add one-or-more copies of book represented by req to this library.
@@ -152,8 +160,72 @@ private wordIndex: Record<string, Set<ISBN>>;
    *    BAD_REQ error on business rule violation.
    */
   checkoutBook(req: Record<string, any>) : Errors.Result<void> {
-    //TODO
-    return Errors.errResult('TODO');  //placeholder
+    const required = ['patronId', 'isbn'];
+    //checks to see if any fields are missing
+    for (const field of required) {
+        if(req[field] === undefined) {
+            return Errors.errResult(
+                'property ${field} is required',
+                'MISSING',
+                field
+            );
+        }
+    }
+    //checks to make sure fields of the right type
+    for( const field of required) {
+        if(typeof req[field] !== 'string') {
+            return Errors.errResult(
+                'property ${field} must be a string',
+                'BAD_TYPE',
+                field
+            )
+        }
+    }
+    
+    const patronId = req.patronId;
+    const isbn = req.isbn;
+
+    //checks if the book exists
+    const book = this.books[isbn];
+
+    if (!book){
+        return Errors.errResult(
+            'book ${isbn} does not exist',
+            'BAD_REQ',
+            'isbn'
+        );
+    }
+
+    //creates a set of books that patron checked out if doesnt exist
+    if(!this.patronBooks[patronId]) {
+        this.patronBooks[patronId] = new Set<ISBN>();
+    }
+
+    //checks if the patron is checking out the same book twice
+    if (this.patronBooks[patronId].has(isbn)) {
+        return Errors.errResult(
+            'patron ${patronId} already has book ${isbn}',
+            'BAD_REQ',
+            'isbn'
+        )
+    }
+
+    //checks to see if the book is available
+    const checkedOut = this.checkedOut[isbn] ?? 0;
+    //uses checkedout as a variable to count how many books are checkedout
+    if(checkedOut >= book.nCopies){
+        return Errors.errResult (
+            'no copies of book ${isbn} are available',
+            'BAD_REQ',
+            'isbn'
+        );
+    }
+
+    //if passes all these test, then it checks out the book
+    this.patronBooks[patronId].add(isbn);
+    this.checkedOut[isbn] = checkedOut + 1;
+
+    return Errors.okResult(undefined); 
   }
 
   /** Set up patron req.patronId to returns book req.isbn.
@@ -164,7 +236,56 @@ private wordIndex: Record<string, Set<ISBN>>;
    *    BAD_REQ error on business rule violation.
    */
   returnBook(req: Record<string, any>) : Errors.Result<void> {
-    //TODO 
+    const required = ['patronId', 'isbn'];
+    //checks to see if any fields are missing
+    for (const field of required) {
+        if(req[field] === undefined) {
+            return Errors.errResult(
+                'property ${field} is required',
+                'MISSING',
+                field
+            );
+        }
+    }
+    //checks to make sure fields of the right type
+    for( const field of required) {
+        if(typeof req[field] !== 'string') {
+            return Errors.errResult(
+                'property ${field} must be a string',
+                'BAD_TYPE',
+                field
+            )
+        }
+    }
+
+    const patronId = req.patronId;
+    const isbn = req.isbn;
+    //checks if the book exists
+    const book = this.books[isbn];
+
+    if (!book){
+        return Errors.errResult(
+            'book ${isbn} does not exist',
+            'BAD_REQ',
+            'isbn'
+        );
+    }
+
+    //checks to see if Patron even has the book
+    const patronBooks = this.patronBooks[patronId];
+
+    if(!patronBooks || !patronBooks.has(isbn)) {
+        return Errors.errResult(
+            'patron ${patronId} does not have book ${isbn}',
+            'BAD_REQ',
+            'isbn'
+        );
+    }
+
+    //if passes returns book, removes it from patron and lowers checkedout value
+    patronBooks.delete(isbn);
+    this.checkedOut[isbn]--;
+
     return Errors.errResult('TODO');  //placeholder
   }
   
